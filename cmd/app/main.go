@@ -5,16 +5,15 @@ import (
 	"log"
 	"os"
 
-	"github.com/docker/docker/client"
-	"github.com/mergermarket/cdflow2-release-lambda/internal/app"
+	"github.com/mergermarket/cdflow2-build-lambda/internal/app"
 )
 
 func main() {
 	if len(os.Args) == 2 && os.Args[1] == "requirements" {
-		// requirements is a way for the release container to communciate its requirements to the
+		// requirements is a way for the release container to communicate its requirements to the
 		// config container
 		if err := json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
-			"env": []string{"LAMBDA_BUCKET", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_DEFAULT_REGION"},
+			"needs": []string{"lambda"},
 		}); err != nil {
 			log.Panicln("error encoding requirements:", err)
 		}
@@ -26,17 +25,26 @@ func main() {
 	// built-in
 	buildID := os.Getenv("BUILD_ID")
 	version := os.Getenv("VERSION")
+	component := os.Getenv("COMPONENT")
+	commit := os.Getenv("COMMIT")
+	team := os.Getenv("TEAM")
+	codeDir := os.Getenv("CDFLOW2_CODE_DIR")
 
-	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		log.Fatalln("error intialising docker:", err)
-	}
-
+	application := &app.App{}
 	params := map[string]interface{}{}
 	if err := json.Unmarshal([]byte(os.Getenv("MANIFEST_PARAMS")), &params); err != nil {
 		log.Fatalln("error loading MANIFEST_PARAMS:", err)
 	}
-	if err := app.Run(dockerClient, bucket, buildID, version, params); err != nil {
+	if err := application.Run(&app.RunContext{
+		Bucket:    bucket,
+		BuildID:   buildID,
+		CodeDir:   codeDir,
+		Version:   version,
+		Component: component,
+		Commit:    commit,
+		Team:      team,
+		Params:    params,
+	}, os.Stdout, os.Stderr); err != nil {
 		log.Fatalln(err)
 	}
 }

@@ -2,17 +2,16 @@ Still a work in progress, but planned usage in cdflow.yaml something like:
 
 ```yaml
 version: 2
-team: teamname
 build:
   node_lambda:
-    image: mergermarket/cdflow2-release-lambda
+    image: mergermarket/cdflow2-build-lambda
     params:
       image: node:latest
       command: npm test && npm run build
       target: .
       handler: index.handler
   go_lambda:
-    image: mergermarket/cdflow2-release-lambda
+    image: mergermarket/cdflow2-build-lambda
     params:
       image: golang:latest
       command: go test ./... && go build cmd/app
