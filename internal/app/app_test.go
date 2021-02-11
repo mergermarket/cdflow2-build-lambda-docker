@@ -108,22 +108,30 @@ func TestRun(t *testing.T) {
 		docker = &mockedDocker{}
 	}
 
+	bucket := "test-bucket"
+	path := "foo/bar"
+
 	// When
-	if err := application.Run(&app.RunContext{
-		Docker:    docker,
-		Bucket:    "test-bucket",
-		BuildID:   "lambda",
-		CodeDir:   codeDir,
-		Version:   "1",
-		Component: "test-component",
-		Commit:    "test-commit",
-		Team:      "test-team",
-		Params:    manifestConfig,
-	}, &outputBuffer, &errorBuffer); err != nil {
+	metadata, err := application.Run(&app.RunContext{
+		Docker:        docker,
+		Bucket:        bucket,
+		BuildID:       "lambda",
+		CodeDir:       codeDir,
+		MappedCodeDir: codeDir,
+		Path:          path,
+		Params:        manifestConfig,
+	}, &outputBuffer, &errorBuffer)
+	if err != nil {
 		t.Fatalf("error in Run: %s\n  output: %q", err, errorBuffer.String())
 	}
 
 	// Then
+	if metadata["bucket"] != bucket {
+		t.Fatalf("expected %s, got %s", bucket, metadata["bucket"])
+	}
+	if metadata["key"] != path {
+		t.Fatalf("expected %s, got %s", path, metadata["key"])
+	}
 	if !strings.Contains(outputBuffer.String(), "test output\n") {
 		t.Fatalf("missing output in %#v", outputBuffer.String())
 	}

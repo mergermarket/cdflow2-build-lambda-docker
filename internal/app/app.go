@@ -43,22 +43,20 @@ func (app *App) getS3Client() s3iface.S3API {
 
 // RunContext contains the context that the build container is run in.
 type RunContext struct {
-	Docker    DockerInterface
-	Bucket    string
-	BuildID   string
-	CodeDir   string
-	Version   string
-	Component string
-	Commit    string
-	Team      string
-	Params    map[string]interface{}
+	Docker        DockerInterface
+	Bucket        string
+	Path          string
+	BuildID       string
+	CodeDir       string
+	MappedCodeDir string
+	Params        map[string]interface{}
 }
 
 // Run runs the release.
-func (app *App) Run(context *RunContext, outputStream, errorStream io.Writer) error {
+func (app *App) Run(context *RunContext, outputStream, errorStream io.Writer) (map[string]string, error) {
 	config, err := getConfig(context.BuildID, context.Params)
 	if err != nil {
-		return fmt.Errorf("error getting config: %w", err)
+		return nil, fmt.Errorf("error getting config: %w", err)
 	}
 
 	docker := context.Docker
@@ -66,46 +64,68 @@ func (app *App) Run(context *RunContext, outputStream, errorStream io.Writer) er
 		docker = NewDocker(app.getDockerClient())
 	}
 
+	fmt.Fprintf(errorStream, "\ncdflow2-build-lambda: running %q in %q\n", config.command, config.image)
+
 	if err := docker.RunContainer(context.CodeDir, config.image, config.command, outputStream, errorStream); err != nil {
-		return fmt.Errorf("error running container: %w", err)
+		return nil, fmt.Errorf("error running container: %w", err)
 	}
 
 	tmpfile, err := ioutil.TempFile("", "cdflow2-release-lambda-*")
 	if err != nil {
-		return fmt.Errorf("error getting tempfile: %w", err)
+		return nil, fmt.Errorf("error getting tempfile: %w", err)
 	}
 	defer os.Remove(tmpfile.Name())
-	target := path.Join(context.CodeDir, config.target)
+
+	mappedCodeDir := context.MappedCodeDir
+	if mappedCodeDir == "" {
+		mappedCodeDir = "/code"
+	}
+
+	target := path.Join(mappedCodeDir, config.target)
 	targetInfo, err := os.Stat(target)
+
+	fmt.Fprintf(os.Stderr, "\ncdflow2-build-lambda: zipping target %q\n\n", config.target)
+
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("target '%s' does not exist: %w", config.target, err)
 	}
 	if targetInfo.IsDir() {
 		if err := zipDir(tmpfile, target); err != nil {
-			return fmt.Errorf("error zipping directory: %w", err)
+			return nil, fmt.Errorf("error zipping directory: %w", err)
 		}
 	} else {
 		if err := zipFile(tmpfile, target); err != nil {
-			return fmt.Errorf("error zipping file: %w", err)
+			return nil, fmt.Errorf("error zipping file: %w", err)
 		}
 	}
 	if err := tmpfile.Sync(); err != nil {
-		return fmt.Errorf("error syncing write on zipfile: %w", err)
+		return nil, fmt.Errorf("error syncing write on zipfile: %w", err)
 	}
 	if _, err := tmpfile.Seek(0, 0); err != nil {
-		return fmt.Errorf("error seeking zipfile: %w", err)
+		return nil, fmt.Errorf("error seeking zipfile: %w", err)
 	}
+
+	bucket := context.Bucket
+	key := context.Path
+
+	fmt.Fprintf(os.Stderr, "\ncdflow2-build-lambda: uploading zip to s3://%s/%s...", bucket, key)
 
 	s3client := app.getS3Client()
 	if _, err := s3client.PutObject(&s3.PutObjectInput{
-		Bucket: aws.String(context.Bucket),
-		Key:    aws.String(fmt.Sprintf("%s/%s/%s.zip", context.Team, context.Component, context.Version)),
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
 		Body:   tmpfile,
 	}); err != nil {
-		return fmt.Errorf("error uploading to s3: %w", err)
+		fmt.Fprintf(os.Stderr, "\n\n")
+		return nil, fmt.Errorf("error uploading to s3: %w", err)
 	}
 
-	return nil
+	fmt.Fprintf(os.Stderr, "\ndone.\n\n")
+
+	return map[string]string{
+		"bucket": bucket,
+		"key":    key,
+	}, nil
 }
 
 type config struct {
