@@ -2,7 +2,7 @@ Still a work in progress, but planned usage in cdflow.yaml something like:
 
 ```yaml
 version: 2
-build:
+builds:
   node_lambda:
     image: mergermarket/cdflow2-build-lambda
     params:
